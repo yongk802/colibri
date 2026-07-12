@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  colibri Windows readiness test — Stages 0-2, one command, pass/fail summary.
+  colibri Windows readiness test — Stages 0-3, one command, pass/fail summary.
 
 .DESCRIPTION
   Run this from inside the cloned colibri repo on the Windows machine.
@@ -12,6 +12,9 @@
     Stage 1  Readiness check against the REAL model (coli doctor / coli plan)
              - SKIPPED automatically if the model isn't downloaded yet
     Stage 2  Disk reality — iobench random-read benchmark on the target NVMe
+    Stage 3  Model smoke test — 'coli run' generates a few real tokens
+             - SKIPPED until the model is present; cold generation is slow, so a
+               timeout is a SKIP (disk speed), not a FAIL
 
   Exit code = number of FAILed checks (0 = everything green). SKIPs are not failures.
 
@@ -29,23 +32,36 @@
   Explicit python.exe to use for the oracle (must have torch+transformers). Optional;
   the script prefers .\c\mio_env and otherwise tries to build that venv with py -3.12.
 
+.PARAMETER SmokeTokens
+  Tokens to generate in the Stage 3 smoke test (default 16 — keep it small; cold decode is slow).
+
+.PARAMETER SmokeTimeoutSec
+  Max seconds to wait for the Stage 3 generation before SKIPping (default 600).
+
 .PARAMETER SkipOracle
   Skip the token-exact self-test (still builds and runs the C tests).
 
 .PARAMETER SkipDisk
   Skip Stage 2 (the disk benchmark).
 
+.PARAMETER SkipSmoke
+  Skip Stage 3 (the coli run smoke test).
+
 .EXAMPLE
   .\test-windows.ps1
   .\test-windows.ps1 -ModelDir D:\glm52_i4 -DiskTestGB 96
+  .\test-windows.ps1 -SkipSmoke              # before the model finishes downloading
 #>
 param(
-  [string]$ModelDir     = "D:\glm52_i4",
-  [string]$DiskTestPath = "",
-  [int]   $DiskTestGB   = 16,
-  [string]$Python       = "",
+  [string]$ModelDir        = "D:\glm52_i4",
+  [string]$DiskTestPath    = "",
+  [int]   $DiskTestGB      = 16,
+  [string]$Python          = "",
+  [int]   $SmokeTokens     = 16,
+  [int]   $SmokeTimeoutSec = 600,
   [switch]$SkipOracle,
-  [switch]$SkipDisk
+  [switch]$SkipDisk,
+  [switch]$SkipSmoke
 )
 
 $ErrorActionPreference = "Continue"
@@ -61,7 +77,7 @@ function Record($stage, $name, $status, $detail) {
 }
 function Have($cmd) { [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
-Write-Host "colibri — Windows readiness test (Stages 0-2)" -ForegroundColor White
+Write-Host "colibri — Windows readiness test (Stages 0-3)" -ForegroundColor White
 
 # --- locate the c/ directory (script may sit at repo root or inside c/) ---
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -259,11 +275,66 @@ if ($SkipDisk) {
 }
 
 # ==================================================================== #
+Section "Stage 3 — model smoke test (coli run)"
+
+if ($SkipSmoke) {
+  Record 3 "coli run smoke" "SKIP" "-SkipSmoke set"
+} elseif (-not $modelPresent) {
+  Record 3 "coli run smoke" "SKIP" "model not present at $ModelDir (download still running?)"
+} elseif (-not $pyRun) {
+  Record 3 "coli run smoke" "SKIP" "no python on PATH to run coli"
+} else {
+  $budgetMin = [int]($SmokeTimeoutSec / 60)
+  Write-Host "  generating $SmokeTokens tokens — cold disk is SLOW (up to ~$budgetMin min budget)…" -ForegroundColor DarkGray
+  $prompt = "In one short sentence, what is a hummingbird?"
+
+  $sb = {
+    param($py, $dir, $model, $prompt, $n)
+    Set-Location $dir
+    $o = (& $py coli run $prompt --model $model --ngen $n 2>&1 | Out-String)
+    [pscustomobject]@{ Out = $o; Code = $LASTEXITCODE }
+  }
+  $job = Start-Job -ScriptBlock $sb -ArgumentList $pyRun, $cdir, $ModelDir, $prompt, $SmokeTokens
+
+  if (Wait-Job $job -Timeout $SmokeTimeoutSec) {
+    $r     = Receive-Job $job
+    $txt   = [string]$r.Out
+    $code  = $r.Code
+    $esc   = [char]27
+    $clean = ($txt -replace "$esc\[[0-9;]*m", "")            # strip ANSI colour codes
+    $ran   = ($clean -match 'tok/s' -or $clean -match 'tokens/forward' -or $clean -match 'Expert cache')
+
+    # pull one prose line (not banner/stat/path) so a human can eyeball coherence
+    $snip = ($clean -split "`n" |
+             Where-Object { $_ -match '[A-Za-z]{4,}' -and
+                            $_ -notmatch 'tok/s|Expert cache|RAM_GB|colibr|prefill|layer|ready in|DSA|MTP|PIN|KV|resident' } |
+             Select-Object -First 1)
+    if ($snip) {
+      $snip = ($snip.Trim() -replace '\s+', ' ')
+      if ($snip.Length -gt 90) { $snip = $snip.Substring(0, 90) + "…" }
+    }
+
+    $okExit = ($code -eq 0 -or $null -eq $code)
+    if ($okExit -and $ran) {
+      Record 3 "coli run smoke" "PASS" ("engine generated + reported stats" + $(if ($snip) { " · `"$snip`"" } else { "" }))
+    } elseif ($okExit) {
+      Record 3 "coli run smoke" "PASS" ("exit 0" + $(if ($snip) { " · `"$snip`"" } else { " (no stats line parsed — eyeball the output)" }))
+    } else {
+      Record 3 "coli run smoke" "FAIL" "coli run exit $code"
+    }
+  } else {
+    Stop-Job $job -ErrorAction SilentlyContinue
+    Record 3 "coli run smoke" "SKIP" "no completion within ${SmokeTimeoutSec}s — cold disk is slow; run 'python coli run ...' manually or raise -SmokeTimeoutSec"
+  }
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+}
+
+# ==================================================================== #
 Section "Summary"
 $rows | Format-Table -AutoSize | Out-String | Write-Host
 if ($fails -eq 0) {
   Write-Host "ALL CHECKS GREEN (no failures). Engine is validated on this machine." -ForegroundColor Green
-  Write-Host "Next: once the model download finishes, re-run to exercise Stage 1, then 'python coli chat'." -ForegroundColor Green
+  Write-Host "Next: once the model download finishes, re-run to exercise Stages 1 & 3, then 'python coli chat'." -ForegroundColor Green
   exit 0
 } else {
   Write-Host "$fails check(s) FAILED — see the table above." -ForegroundColor Red
