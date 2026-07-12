@@ -208,9 +208,16 @@ def main():
 
     # lock anti-doppione: DUE convertitori sulla stessa outdir si corrompono a vicenda.
     # EN: anti-duplicate lock: TWO converters on the same outdir corrupt each other.
-    import fcntl
+    # Cross-platform advisory lock: fcntl.flock on POSIX, msvcrt byte-range lock on Windows.
     lock = open(os.path.join(a.outdir, ".convert.lock"), "w")
-    try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         print("ERROR: another converter is already using this output directory. Exiting."); return
 
