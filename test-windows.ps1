@@ -92,9 +92,16 @@ if (-not $cdir) {
 Set-Location $cdir
 Write-Host "  repo c/ dir: $cdir"
 
-# --- pick a make binary (mingw ships it as make or mingw32-make) ---
-$make = $null
-foreach ($m in @("make", "mingw32-make")) { if (Have $m) { $make = $m; break } }
+# --- C build helper: compile with gcc directly. colibri's Makefile detects the
+#     OS via 'uname', which plain MinGW-Builds doesn't ship, so we don't use make. ---
+$GCC_CFLAGS  = @('-D_FILE_OFFSET_BITS=64','-O3','-march=x86-64-v3','-fopenmp',
+                 '-Wall','-Wextra','-Wno-unused-parameter','-Wno-misleading-indentation','-Wno-unused-function')
+$GCC_LDFLAGS = @('-lm','-fopenmp','-static')
+function Build-C($src, $out) {
+  if (Test-Path $out) { Remove-Item $out -Force -ErrorAction SilentlyContinue }
+  try { & gcc $GCC_CFLAGS $src -o $out $GCC_LDFLAGS 2>&1 | Out-Null } catch {}
+  return (Test-Path $out)
+}
 
 # ==================================================================== #
 Section "Stage 0 - engine correctness"
@@ -107,35 +114,29 @@ if (Have "gcc") {
   Record 0 "gcc (MinGW-w64)" "FAIL" "gcc not on PATH - install mingw-w64 (scoop install mingw-winlibs)"
 }
 
-# build glm.exe
+# build glm.exe (direct gcc)
 $built = $false
 if (Have "gcc") {
-  try {
-    if ($make) {
-      & $make glm.exe *> $null
-    } else {
-      & gcc -D_FILE_OFFSET_BITS=64 -O3 -march=x86-64-v3 -fopenmp `
-            -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function `
-            glm.c -o glm.exe -lm -fopenmp -static *> $null
-    }
-    $built = Test-Path ".\glm.exe"
-  } catch { $built = $false }
+  $built = Build-C "glm.c" "glm.exe"
   if ($built) { Record 0 "build glm.exe" "PASS" ("{0:N0} bytes" -f (Get-Item .\glm.exe).Length) }
-  else        { Record 0 "build glm.exe" "FAIL" "compilation/link failed (check gcc + libgomp on PATH)" }
+  else        { Record 0 "build glm.exe" "FAIL" "gcc build failed - run by hand to see it: gcc -D_FILE_OFFSET_BITS=64 -O3 -march=x86-64-v3 -fopenmp glm.c -o glm.exe -lm -fopenmp -static" }
 } else {
   Record 0 "build glm.exe" "SKIP" "no gcc"
 }
 
-# C unit tests (needs make)
-if ($built -and $make) {
-  $out = (& $make test-c 2>&1 | Out-String)
-  if ($out -match "json tests: ok" -and $out -match "grammar: ok") {
-    Record 0 "C unit tests" "PASS" "json/safetensors/tier/grammar ok"
-  } else {
-    Record 0 "C unit tests" "FAIL" "one or more C tests did not report ok"
+# C unit tests (compiled + run directly with gcc)
+if ($built) {
+  $failed = @()
+  foreach ($t in @('json','st','tier','grammar')) {
+    $src = "tests\test_$t.c"; $exe = "tests\test_$t.exe"
+    if (-not (Test-Path $src)) { continue }
+    if (Build-C $src $exe) {
+      & ".\$exe" *> $null
+      if ($LASTEXITCODE -ne 0) { $failed += $t }
+    } else { $failed += "$t(build)" }
   }
-} elseif ($built) {
-  Record 0 "C unit tests" "SKIP" "no make on PATH (glm.exe still built)"
+  if ($failed.Count -eq 0) { Record 0 "C unit tests" "PASS" "json/safetensors/tier/grammar ok" }
+  else                     { Record 0 "C unit tests" "FAIL" ("failed: " + ($failed -join ', ')) }
 } else {
   Record 0 "C unit tests" "SKIP" "glm.exe not built"
 }
@@ -226,15 +227,9 @@ Section "Stage 2 - disk reality"
 if ($SkipDisk) {
   Record 2 "iobench" "SKIP" "-SkipDisk set"
 } else {
-  # build iobench.exe
+  # build iobench.exe (direct gcc)
   $iob = $false
-  if (Have "gcc") {
-    try {
-      if ($make) { & $make iobench.exe *> $null }
-      else { & gcc -D_FILE_OFFSET_BITS=64 -O3 -march=x86-64-v3 -fopenmp iobench.c -o iobench.exe -lm -fopenmp -static *> $null }
-      $iob = Test-Path ".\iobench.exe"
-    } catch { $iob = $false }
-  }
+  if (Have "gcc") { $iob = Build-C "iobench.c" "iobench.exe" }
 
   if (-not $iob) {
     Record 2 "iobench build" "FAIL" "could not build iobench.exe"
