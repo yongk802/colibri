@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  colibri Windows readiness test — Stages 0-3, one command, pass/fail summary.
+  colibri Windows readiness test - Stages 0-3, one command, pass/fail summary.
 
 .DESCRIPTION
   Run this from inside the cloned colibri repo on the Windows machine.
@@ -11,8 +11,8 @@
              - token-exact self-test vs a tiny transformers oracle (TF 32/32, greedy 20/20)
     Stage 1  Readiness check against the REAL model (coli doctor / coli plan)
              - SKIPPED automatically if the model isn't downloaded yet
-    Stage 2  Disk reality — iobench random-read benchmark on the target NVMe
-    Stage 3  Model smoke test — 'coli run' generates a few real tokens
+    Stage 2  Disk reality - iobench random-read benchmark on the target NVMe
+    Stage 3  Model smoke test - 'coli run' generates a few real tokens
              - SKIPPED until the model is present; cold generation is slow, so a
                timeout is a SKIP (disk speed), not a FAIL
 
@@ -33,7 +33,7 @@
   the script prefers .\c\mio_env and otherwise tries to build that venv with py -3.12.
 
 .PARAMETER SmokeTokens
-  Tokens to generate in the Stage 3 smoke test (default 16 — keep it small; cold decode is slow).
+  Tokens to generate in the Stage 3 smoke test (default 16 - keep it small; cold decode is slow).
 
 .PARAMETER SmokeTimeoutSec
   Max seconds to wait for the Stage 3 generation before SKIPping (default 600).
@@ -77,7 +77,7 @@ function Record($stage, $name, $status, $detail) {
 }
 function Have($cmd) { [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
-Write-Host "colibri — Windows readiness test (Stages 0-3)" -ForegroundColor White
+Write-Host "colibri - Windows readiness test (Stages 0-3)" -ForegroundColor White
 
 # --- locate the c/ directory (script may sit at repo root or inside c/) ---
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -86,7 +86,7 @@ foreach ($p in @((Join-Path $here "c"), $here)) {
   if (Test-Path (Join-Path $p "glm.c")) { $cdir = $p; break }
 }
 if (-not $cdir) {
-  Write-Host "ERROR: could not find c\glm.c — run this from the colibri repo." -ForegroundColor Red
+  Write-Host "ERROR: could not find c\glm.c - run this from the colibri repo." -ForegroundColor Red
   exit 2
 }
 Set-Location $cdir
@@ -97,14 +97,14 @@ $make = $null
 foreach ($m in @("make", "mingw32-make")) { if (Have $m) { $make = $m; break } }
 
 # ==================================================================== #
-Section "Stage 0 — engine correctness"
+Section "Stage 0 - engine correctness"
 
 # toolchain
 if (Have "gcc") {
   $gccv = (& gcc -dumpversion) 2>$null
   Record 0 "gcc (MinGW-w64)" "PASS" "version $gccv"
 } else {
-  Record 0 "gcc (MinGW-w64)" "FAIL" "gcc not on PATH — install mingw-w64 (scoop install mingw-winlibs)"
+  Record 0 "gcc (MinGW-w64)" "FAIL" "gcc not on PATH - install mingw-w64 (scoop install mingw-winlibs)"
 }
 
 # build glm.exe
@@ -160,8 +160,8 @@ if ($SkipOracle) {
 } else {
   $py = Resolve-OraclePython
   if (-not $py -and -not (Test-Path ".\glm_tiny\model.safetensors")) {
-    # try to build the venv once (py 3.12 preferred — torch has wheels for it)
-    Write-Host "  setting up c\mio_env (torch+transformers, one-time)…" -ForegroundColor DarkGray
+    # try to build the venv once (py 3.12 preferred - torch has wheels for it)
+    Write-Host "  setting up c\mio_env (torch+transformers, one-time)..." -ForegroundColor DarkGray
     try {
       if (Have "py") { & py -3.12 -m venv mio_env 2>$null } else { & python -m venv mio_env 2>$null }
       & .\mio_env\Scripts\python.exe -m pip install -q --upgrade pip 2>$null
@@ -177,7 +177,7 @@ if ($SkipOracle) {
   }
 
   if (-not (Test-Path ".\glm_tiny\model.safetensors")) {
-    Record 0 "token-exact self-test" "SKIP" "no python w/ torch+transformers — set -Python or build c\mio_env"
+    Record 0 "token-exact self-test" "SKIP" "no python w/ torch+transformers - set -Python or build c\mio_env"
   } else {
     # teacher-forcing: expect N/N positions
     $env:SNAP = ".\glm_tiny"; $env:TF = "1"
@@ -193,13 +193,13 @@ if ($SkipOracle) {
     $genOk = ($gen -match 'Matching tokens:\s*(\d+)\s*/\s*(\d+)') -and ($Matches[1] -eq $Matches[2]) -and ($Matches[1] -ne "0")
     $genTxt = if ($gen -match '(Matching tokens:\s*\d+\s*/\s*\d+)') { $Matches[1] } else { "no matching-tokens line" }
 
-    if ($tfOk -and $genOk) { Record 0 "token-exact self-test" "PASS" "$tfTxt · $genTxt" }
-    else                   { Record 0 "token-exact self-test" "FAIL" "$tfTxt · $genTxt (expected N/N on both)" }
+    if ($tfOk -and $genOk) { Record 0 "token-exact self-test" "PASS" "$tfTxt | $genTxt" }
+    else                   { Record 0 "token-exact self-test" "FAIL" "$tfTxt | $genTxt (expected N/N on both)" }
   }
 }
 
 # ==================================================================== #
-Section "Stage 1 — readiness (real model)"
+Section "Stage 1 - readiness (real model)"
 
 $pyRun = if (Have "py") { "py" } elseif (Have "python") { "python" } else { $null }
 $modelPresent = (Test-Path (Join-Path $ModelDir "config.json"))
@@ -221,7 +221,7 @@ if (-not $modelPresent) {
 }
 
 # ==================================================================== #
-Section "Stage 2 — disk reality"
+Section "Stage 2 - disk reality"
 
 if ($SkipDisk) {
   Record 2 "iobench" "SKIP" "-SkipDisk set"
@@ -244,7 +244,7 @@ if ($SkipDisk) {
     $scratch = Join-Path $DiskTestPath "colibri_iobench.dat"
 
     try {
-      Write-Host "  writing $DiskTestGB GB scratch file to $scratch (real data, not sparse)…" -ForegroundColor DarkGray
+      Write-Host "  writing $DiskTestGB GB scratch file to $scratch (real data, not sparse)..." -ForegroundColor DarkGray
       $buf = New-Object byte[] (64MB)
       (New-Object System.Random).NextBytes($buf)
       $fs = [System.IO.File]::Create($scratch)
@@ -258,8 +258,8 @@ if ($SkipDisk) {
         $gbs = [double]$Matches[1]
         $ramGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
         $note = "$gbs GB/s random-read"
-        if ($DiskTestGB -lt $ramGB) { $note += "  (WARN: file < ${ramGB}GB RAM → cache-optimistic; re-run -DiskTestGB $([int]($ramGB*1.5))+)" }
-        # ~11 GB reads/token cold → tok/s estimate
+        if ($DiskTestGB -lt $ramGB) { $note += "  (WARN: file < ${ramGB}GB RAM -> cache-optimistic; re-run -DiskTestGB $([int]($ramGB*1.5))+)" }
+        # ~11 GB reads/token cold -> tok/s estimate
         $tps = [math]::Round($gbs / 11.0, 3)
         $note += "  (~$tps tok/s cold ceiling)"
         Record 2 "iobench" "PASS" $note
@@ -275,7 +275,7 @@ if ($SkipDisk) {
 }
 
 # ==================================================================== #
-Section "Stage 3 — model smoke test (coli run)"
+Section "Stage 3 - model smoke test (coli run)"
 
 if ($SkipSmoke) {
   Record 3 "coli run smoke" "SKIP" "-SkipSmoke set"
@@ -285,7 +285,7 @@ if ($SkipSmoke) {
   Record 3 "coli run smoke" "SKIP" "no python on PATH to run coli"
 } else {
   $budgetMin = [int]($SmokeTimeoutSec / 60)
-  Write-Host "  generating $SmokeTokens tokens — cold disk is SLOW (up to ~$budgetMin min budget)…" -ForegroundColor DarkGray
+  Write-Host "  generating $SmokeTokens tokens - cold disk is SLOW (up to ~$budgetMin min budget)..." -ForegroundColor DarkGray
   $prompt = "In one short sentence, what is a hummingbird?"
 
   $sb = {
@@ -311,20 +311,20 @@ if ($SkipSmoke) {
              Select-Object -First 1)
     if ($snip) {
       $snip = ($snip.Trim() -replace '\s+', ' ')
-      if ($snip.Length -gt 90) { $snip = $snip.Substring(0, 90) + "…" }
+      if ($snip.Length -gt 90) { $snip = $snip.Substring(0, 90) + "..." }
     }
 
     $okExit = ($code -eq 0 -or $null -eq $code)
     if ($okExit -and $ran) {
-      Record 3 "coli run smoke" "PASS" ("engine generated + reported stats" + $(if ($snip) { " · `"$snip`"" } else { "" }))
+      Record 3 "coli run smoke" "PASS" ("engine generated + reported stats" + $(if ($snip) { " | `"$snip`"" } else { "" }))
     } elseif ($okExit) {
-      Record 3 "coli run smoke" "PASS" ("exit 0" + $(if ($snip) { " · `"$snip`"" } else { " (no stats line parsed — eyeball the output)" }))
+      Record 3 "coli run smoke" "PASS" ("exit 0" + $(if ($snip) { " | `"$snip`"" } else { " (no stats line parsed - eyeball the output)" }))
     } else {
       Record 3 "coli run smoke" "FAIL" "coli run exit $code"
     }
   } else {
     Stop-Job $job -ErrorAction SilentlyContinue
-    Record 3 "coli run smoke" "SKIP" "no completion within ${SmokeTimeoutSec}s — cold disk is slow; run 'python coli run ...' manually or raise -SmokeTimeoutSec"
+    Record 3 "coli run smoke" "SKIP" "no completion within ${SmokeTimeoutSec}s - cold disk is slow; run 'python coli run ...' manually or raise -SmokeTimeoutSec"
   }
   Remove-Job $job -Force -ErrorAction SilentlyContinue
 }
@@ -337,6 +337,6 @@ if ($fails -eq 0) {
   Write-Host "Next: once the model download finishes, re-run to exercise Stages 1 & 3, then 'python coli chat'." -ForegroundColor Green
   exit 0
 } else {
-  Write-Host "$fails check(s) FAILED — see the table above." -ForegroundColor Red
+  Write-Host "$fails check(s) FAILED - see the table above." -ForegroundColor Red
   exit $fails
 }

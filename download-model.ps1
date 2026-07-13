@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Run this in a SEPARATE PowerShell window on the Windows machine so it downloads in
-  parallel while you run test-windows.ps1. It is fully resumable — if it drops, just
+  parallel while you run test-windows.ps1. It is fully resumable - if it drops, just
   run it again and it continues from where it stopped.
 
   Default source: mateogrgic/GLM-5.2-colibri-int4-with-int8-mtp
@@ -29,7 +29,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Write-Host "colibri — model download" -ForegroundColor White
+Write-Host "colibri - model download" -ForegroundColor White
 Write-Host "  repo   : $Repo"
 Write-Host "  dest   : $ModelDir"
 
@@ -41,7 +41,7 @@ if (-not $py) { Write-Host "ERROR: no python on PATH. Install Python 3.12." -For
 # huggingface-cli present? if not, install the hub + fast transfer into the user site
 $hasCli = [bool](Get-Command "huggingface-cli" -ErrorAction SilentlyContinue)
 if (-not $hasCli) {
-  Write-Host "  installing huggingface_hub[cli] + hf_transfer…" -ForegroundColor DarkGray
+  Write-Host "  installing huggingface_hub[cli] + hf_transfer..." -ForegroundColor DarkGray
   & $py -m pip install -q --user "huggingface_hub[cli]" hf_transfer
 }
 
@@ -55,7 +55,7 @@ try {
     Write-Host "  WARNING: < 400 GB free. The model is ~379 GB; you want headroom. Continue? (Ctrl+C to abort)" -ForegroundColor Yellow
     Start-Sleep -Seconds 5
   }
-} catch { Write-Host "  (could not read free space for $drive — continuing)" -ForegroundColor DarkGray }
+} catch { Write-Host "  (could not read free space for $drive - continuing)" -ForegroundColor DarkGray }
 
 New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
 
@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
 $env:HF_HUB_ENABLE_HF_TRANSFER = "1"
 
 Write-Host ""
-Write-Host "  starting download (this takes HOURS — leave it running; it resumes if interrupted)…" -ForegroundColor Cyan
+Write-Host "  starting download (this takes HOURS - leave it running; it resumes if interrupted)..." -ForegroundColor Cyan
 Write-Host ""
 
 # Prefer the modern 'hf download'; fall back to legacy 'huggingface-cli download'.
@@ -81,6 +81,6 @@ if ($LASTEXITCODE -eq 0) {
   Write-Host "Then chat  :  `$env:COLI_MODEL='$ModelDir'; python coli chat" -ForegroundColor Green
 } else {
   Write-Host ""
-  Write-Host "Download exited $LASTEXITCODE. It is resumable — re-run this script to continue." -ForegroundColor Yellow
+  Write-Host "Download exited $LASTEXITCODE. It is resumable - re-run this script to continue." -ForegroundColor Yellow
   exit $LASTEXITCODE
 }
