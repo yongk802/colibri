@@ -2634,6 +2634,18 @@ int main(int argc, char **argv){
         perror("[OMP] execv self-reexec failed, running untuned");
 #endif
     }
+#ifdef _WIN32
+    /* serve/chat frame stdio with a binary protocol (READY/END markers + prompt
+     * payloads). Windows text mode translates \n<->\r\n, corrupting the markers
+     * and deadlocking the Python handshake — coli serve never binds and coli
+     * chat never shows a prompt (coli run is unaffected: it bypasses the
+     * handshake). Force binary in those modes; interactive run stays text mode
+     * so console newlines still render. */
+    if(getenv("SERVE")){
+        _setmode(_fileno(stdout), O_BINARY);
+        _setmode(_fileno(stdin),  O_BINARY);
+    }
+#endif
     const char *snap=getenv("SNAP"); if(!snap){fprintf(stderr,"SNAP=<dir>\n");return 1;}
     g_nopack = getenv("NOPACK")?1:0;
     g_drop = getenv("DROP")?1:0;
